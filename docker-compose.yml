@@ -1,0 +1,48 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.0
+    container_name: logstash
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./logs:/logs
+      # Logstash lit maintenant à la racine de ./logs (si la configuration est correcte)
+      - ./logs:/cowrie/cowrie-git/var/log/cowrie 
+    depends_on:
+      - elasticsearch
+
+  cowrie:
+    image: cowrie/cowrie
+    container_name: cowrie
+    ports:
+      - "2223:2222"
+    volumes:
+      # CORRECTION: Les logs Cowrie s'écrivent directement dans le dossier local ./logs
+      - ./logs:/cowrie/cowrie-git/var/log/cowrie 
+      # On garde le volume nommé pour les données Cowrie (comme les TTY)
+      - cowrie_data:/cowrie/var/lib/cowrie
+
+volumes:
+  esdata:
+  cowrie_data:

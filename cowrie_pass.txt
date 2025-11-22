@@ -1,0 +1,12 @@
+123456
+password
+root
+admin
+admin123
+root123
+cowrie
+honeypot
+toor
+letmein
+supersecret
+omar

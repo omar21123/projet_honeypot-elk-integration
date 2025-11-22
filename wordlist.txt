@@ -1,0 +1,15 @@
+123456
+password
+admin
+test123
+flasksecret
+mysecretkey
+supersecretkey
+supersecretkey12
+supersecretkey123
+supersecretkey1234
+secret123
+root123
+qwerty
+letmein
+key12345
