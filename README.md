@@ -1,112 +1,208 @@
-# 🛡️ Honeypot & ELK Integration
+🛡️ Honeypot & ELK Integration
+Un système de honeypot multi-services complet intégré à une stack ELK (Elasticsearch, Logstash, Kibana) pour capturer, analyser et visualiser les tentatives d'intrusion en temps réel.
 
-Ce projet met en place un **honeypot multi‑services** intégré à une stack **ELK** pour capturer les tentatives d’intrusion, stocker les logs et les visualiser via **Kibana**.
+📋 Vue d'ensemble
+Ce projet déploie trois types de honeypots qui simulent des services vulnérables pour attirer et enregistrer les activités malveillantes :
 
----
+🔹 HTTP Honeypot : Service web simulé avec Flask
 
-## 🔹 Services Honeypots
+🔹 SSH Honeypot : Service SSH factice pour capturer les tentatives d'accès
 
-| Service | Script | Description |
-|---------|--------|-------------|
-| HTTP    | `app.py` | Honeypot HTTP via Flask |
-| SSH     | `ssh_honeypot.py` | Honeypot SSH |
-| FTP     | `ftp_honeypot_advanced.py` | Honeypot FTP avancé |
+🔹 FTP Honeypot Avancé : Service FTP avec fonctionnalités étendues
 
----
+Tous les logs sont centralisés dans la stack ELK pour analyse et visualisation via Kibana.
 
-## 📦 Prérequis
+🎯 Fonctionnalités
+✅ Capture complète des tentatives d'intrusion
 
-- **Docker** ≥ 20  
-- **Docker Compose** ≥ 2  
-- **Python** ≥ 3.10 (optionnel, pour le mode local)  
-- **Virtualenv** (optionnel)  
+✅ Stockage structuré des logs dans Elasticsearch
 
----
+✅ Tableau de bord Kibana pour visualisation
 
-## 🔧 Installation
+✅ Interface web de monitoring pour le honeypot HTTP
 
-1. Cloner le projet :
+✅ Support multi-protocoles (HTTP, SSH, FTP)
 
-```bash
+✅ Déploiement simplifié via Docker
+
+✅ Mode local disponible pour le développement
+
+📦 Prérequis
+Option Docker (Recommandé)
+Docker ≥ 20.10
+
+Docker Compose ≥ 2.0
+
+4 GB de RAM minimum
+
+2 CPU cores minimum
+
+Option Local (Développement)
+Python ≥ 3.10
+
+Virtualenv (optionnel mais recommandé)
+
+2 GB de RAM minimum
+
+🚀 Installation Rapide
+1. Cloner le projet
+bash
 git clone https://github.com/<TON-USERNAME>/projet_honeypot-elk-integration.git
 cd projet_honeypot-elk-integration
-Installer les dépendances Python (optionnel, mode local) :
-
+2. Démarrage avec Docker (Recommandé)
 bash
-Copier le code
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-🚀 Lancer le projet
-Mode Docker (recommandé)
-bash
-Copier le code
+# Lancement complet de la stack
 ./start_honeypot.sh
-# ou directement
+
+# Ou directement avec Docker Compose
 docker compose up -d --build
-Mode Local (Python uniquement)
+3. Démarrage en mode local (Développement)
 bash
-Copier le code
+# Créer et activer l'environnement virtuel
+python3 -m venv venv
+source venv/bin/activate  # Sur Windows: venv\Scripts\activate
+
+# Installer les dépendances
+pip install -r requirements.txt
+
+# Lancer les honeypots
 ./start_honeypot.sh --local
-Les scripts Python sont alors lancés en arrière-plan :
-
-app.py → Honeypot HTTP
-
-ftp_honeypot_advanced.py → Honeypot FTP
-
-ssh_honeypot.py → Honeypot SSH
-
-Logs :
-
-/tmp/honeypot_*.log
-
-logs/ecom_honeypot.log (HTTP)
-
-🌐 Accès aux services
-Service	URL
-HTTP Honeypot (Flask)	http://localhost:5000
-Kibana (ELK Dashboard)	http://localhost:5601
-Elasticsearch API	http://localhost:9200
-
-🗂️ Structure du projet
-csharp
-Copier le code
-projet_honeypot-elk-integration/
-│── app/
-│   ├── app.py                   # HTTP Honeypot (Flask)
-│   ├── ssh_honeypot.py          # SSH Honeypot
-│   ├── ftp_honeypot_advanced.py # FTP Honeypot
-│   ├── database.db              # Base SQLite
-│   ├── static/                  # Fichiers CSS/JS
-│   ├── uploads/                 # Fichiers uploadés
-│   └── Dockerfile               # Build Flask
-│
-│── docker-compose.yml           # Stack Docker ELK + Honeypots
-│── logstash.conf                # Configuration Logstash
-│── requirements.txt             # Dépendances Python
-│── start_honeypot.sh            # Script de démarrage
-│── stop_honeypot.sh             # Script d'arrêt
-│── logs/                        # Logs bruts capturés
-│── venv/                        # Environnement Python
+🌐 Accès aux Services
+Service	URL	Port	Description
+HTTP Honeypot (Flask)	http://localhost:5000	5000	Interface web du honeypot HTTP
+Kibana Dashboard	http://localhost:5601	5601	Visualisation des logs et analytics
+Elasticsearch API	http://localhost:9200	9200	API Elasticsearch pour requêtes
+SSH Honeypot	ssh://localhost:2222	2222	Honeypot SSH
+FTP Honeypot	ftp://localhost:2121	2121	Honeypot FTP
 🧪 Tester les Honeypots
-HTTP :
-
+Test HTTP
 bash
-Copier le code
 curl http://localhost:5000/login
-SSH :
+curl -X POST http://localhost:5000/login -d "username=admin&password=test"
+Test SSH
+bash
+ssh test@localhost -p 2222
+# Mot de passe: anypassword
+Test FTP
+bash
+ftp localhost 2121
+# Utilisateur: anonymous
+# Mot de passe: any@email.com
+📊 Structure du Projet
+text
+projet_honeypot-elk-integration/
+│
+├── app/
+│   ├── app.py                    # Honeypot HTTP (Flask)
+│   ├── ssh_honeypot.py           # Honeypot SSH
+│   ├── ftp_honeypot_advanced.py  # Honeypot FTP avancé
+│   ├── database.db               # Base de données SQLite
+│   ├── static/                   # Assets CSS/JS
+│   ├── uploads/                  # Fichiers uploadés (FTP)
+│   └── Dockerfile                # Configuration Docker pour Flask
+│
+├── docker-compose.yml            # Stack Docker ELK + Honeypots
+├── logstash.conf                 # Configuration Logstash
+├── requirements.txt              # Dépendances Python
+├── start_honeypot.sh             # Script de démarrage
+├── stop_honeypot.sh              # Script d'arrêt
+│
+├── logs/                         # Logs bruts capturés
+│   ├── ecom_honeypot.log         # Logs HTTP honeypot
+│   ├── honeypot_ssh.log          # Logs SSH honeypot
+│   └── honeypot_ftp.log          # Logs FTP honeypot
+│
+└── venv/                         # Environnement virtuel Python
+🔧 Configuration
+Variables d'Environnement (Docker)
+Les variables peuvent être modifiées dans docker-compose.yml:
 
-bash
-Copier le code
-ssh test@<IP_MACHINE>
-FTP :
+ELASTIC_PASSWORD : Mot de passe Elasticsearch (par défaut: changeme)
 
+ELASTICSEARCH_HOST : URL Elasticsearch (par défaut: elasticsearch)
+
+KIBANA_SYSTEM_PASSWORD : Mot de passe Kibana
+
+Configuration Logstash
+Le fichier logstash.conf définit comment les logs sont traités et envoyés à Elasticsearch.
+
+📈 Visualisation des Données
+Accédez à Kibana: http://localhost:5601
+
+Connectez-vous avec:
+
+Utilisateur: elastic
+
+Mot de passe: changeme (ou celui défini dans les variables d'environnement)
+
+Créez un index pattern pour honeypot-*
+
+Explorez les dashboards prédéfinis ou créez vos propres visualisations
+
+🛠️ Développement
+Ajouter un nouveau service de honeypot
+Créez votre script Python dans le dossier app/
+
+Assurez-vous qu'il écrit les logs au format JSON
+
+Ajoutez le service à docker-compose.yml si nécessaire
+
+Mettez à jour la configuration Logstash pour traiter les nouveaux logs
+
+Mode Débogage
 bash
-Copier le code
-ftp <IP_MACHINE>
-🛑 Arrêter le projet
+# Lancer un honeypot spécifique en mode debug
+python app/app.py --debug
+
+# Voir les logs Docker
+docker compose logs -f [service_name]
+🛑 Arrêt Propre
+Arrêter tous les services
 bash
-Copier le code
 ./stop_honeypot.sh
-# ou (Docker uniquement)
+Arrêter uniquement Docker
+bash
 docker compose down
+Arrêter le mode local
+bash
+pkill -f "python.*honeypot"
+# ou
+./stop_honeypot.sh --local
+⚠️ Avertissements de Sécurité
+⚠️ CE PROJET EST UN OUTIL DE SÉCURITÉ OFFENSIF/DÉFENSIF
+
+Ne déployez pas sur des réseaux de production sans supervision
+
+Les honeypots simulent des services vulnérables
+
+Surveillez régulièrement les logs pour détecter les activités suspectes
+
+Changez les mots de passe par défaut avant tout déploiement public
+
+Consultez les lois locales concernant la collecte de données
+
+🐛 Dépannage
+Problèmes courants
+Ports déjà utilisés
+
+bash
+# Vérifier les ports en cours d'utilisation
+sudo netstat -tulpn | grep :5000
+# ou changer les ports dans docker-compose.yml
+Elasticsearch ne démarre pas
+
+bash
+# Augmenter la mémoire virtuelle
+sudo sysctl -w vm.max_map_count=262144
+Permissions Docker
+
+bash
+# Ajouter votre utilisateur au groupe docker
+sudo usermod -aG docker $USER
+Logs de débogage
+bash
+# Voir tous les logs
+docker compose logs
+
+# Suivre les logs d'un service spécifique
+docker compose logs -f elasticsearch
