@@ -39,7 +39,7 @@ Tous les logs sont centralisés dans la stack ELK pour analyse et visualisation 
 
 ### 1. Cloner le projet
 ```bash
-git clone https://github.com/<TON-USERNAME>/projet_honeypot-elk-integration.git
+git clone https://github.com/omar21123/projet_honeypot-elk-integration.git
 cd projet_honeypot-elk-integration
 ```
 
