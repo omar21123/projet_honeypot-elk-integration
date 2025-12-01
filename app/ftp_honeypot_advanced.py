@@ -1,279 +1,250 @@
-import os
 import socket
 import threading
+import os
+import datetime
 import json
-import time
-import uuid
+import errno
 
-# --- Répertoire des logs commun (../logs) ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # .../projet_honeypot_final/app
-LOG_DIR = os.path.join(os.path.dirname(BASE_DIR), "logs")      # .../projet_honeypot_final/logs
+# ===================== SECCOMP FIX (Block only STOR) =====================
+try:
+    from pyseccomp import SyscallFilter, ALLOW, ERRNO
+    SECCOMP_AVAILABLE = True
+except:
+    print("[!] pyseccomp non installé — seccomp désactivé")
+    SECCOMP_AVAILABLE = False
+
+
+def enable_seccomp_block_put():
+    """
+    Version compatible avec toutes les versions pyseccomp.
+    """
+    if not SECCOMP_AVAILABLE:
+        print("[!] Seccomp non actif")
+        return
+
+    try:
+        flt = SyscallFilter(default=ALLOW)
+    except TypeError:
+        try:
+            flt = SyscallFilter()
+        except Exception as e:
+            print(f"[!] Version pyseccomp incompatible → seccomp OFF ({e})")
+            return
+
+    # Syscalls interdits → impossible d’écrire un fichier (PUT / STOR)
+    blocked = [
+        "write",
+        "pwrite64",
+        "truncate",
+        "unlink",
+        "rename",
+        "openat",
+        "creat"
+    ]
+
+    for sc in blocked:
+        try:
+            flt.add_rule(ERRNO(errno.EACCES), sc)
+        except Exception as e:
+            print(f"[!] Impossible de bloquer {sc}: {e}")
+
+    try:
+        flt.load()
+        print("[+] Seccomp actif : ÉCRITURE bloquée → PUT interdit")
+    except Exception as e:
+        print(f"[!] Seccomp load() échec : {e}")
+
+
+# ===================== CONFIG =====================
+HOST = "0.0.0.0"
+PORT = 2121
+
+LOG_DIR = "/home/kali/Downloads/projet_honeypot-elk-integration/logs/"
+HONEYPOT_DIR = "/home/kali/Downloads/projet_honeypot-elk-integration/app/honeypot"
+
 os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(HONEYPOT_DIR, exist_ok=True)
 
-# Fichier où les logs JSON seront écrits
-FTP_LOG_FILE = os.path.join(LOG_DIR, "honeypot_ftp.log")
-HOST = '0.0.0.0'
-PORT = 2121  # Port non standard 2121 (FTP standard = 21)
+LOG_FILE = os.path.join(LOG_DIR, "honeypot_ftp.log")
 
-# --- Fonctions de Logging Honeypot (JSON) ---
-def log_event(event_type, source_ip, session_id=None, command=None,
-              username=None, password=None, message="", extra=None):
-    """Crée une entrée de log JSON structurée pour l'activité FTP."""
-    log_entry = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+FLAG = os.path.join(HONEYPOT_DIR, "flag.txt")
+with open(FLAG, "w") as f:
+    f.write("FLAG{FTP_HONEYPOT_OK}\n")
+
+
+# ===================== LOG =====================
+def log_event(event_type, session, ip, command=None, extra=None):
+    event = {
+        "timestamp": datetime.datetime.now().isoformat(),
         "honeypot_type": "ftp",
         "event_type": event_type,
-        "source_ip": source_ip,
-        "session_id": session_id,
+        "source_ip": ip,
+        "session_id": session,
         "command": command,
-        "username": username,
-        "password": password,
-        "message": message,
         "extra": extra or {}
     }
-    try:
-        with open(FTP_LOG_FILE, 'a') as f:
-            f.write(json.dumps(log_entry) + '\n')
-    except Exception as e:
-        print(f"[-] Erreur d'écriture dans le log FTP: {e}")
+    with open(LOG_FILE, "a") as f:
+        f.write(json.dumps(event) + "\n")
+    print(json.dumps(event, indent=2))
 
 
-# --- Gestion d'une Connexion FTP Individuelle (version avancée) ---
-def handle_ftp_connection(conn, addr):
-    """Gère le dialogue avancé d'un client FTP."""
-    source_ip = addr[0]
-    session_id = str(uuid.uuid4())  # ID unique par connexion
-    username = "anonymous"
-    authenticated = False
-    current_dir = "/"
+# ===================== PASV =====================
+def passive_socket(ip, session):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind((HOST, 0))
+    s.listen(1)
+    port = s.getsockname()[1]
 
-    # Petit système de fichiers factice
-    fake_fs = {
-        "/": ["pub", "secret", "readme.txt"],
-        "/pub": ["file1.txt", "file2.log"],
-        "/secret": ["admin_creds.txt", "db_backup.sql"]
-    }
+    ip_format = "127,0,0,1"
+    p1 = port // 256
+    p2 = port % 256
 
-    conn.settimeout(300)  # Timeout de session pour éviter les connexions zombies
-
-    log_event(
-        event_type="connection_established",
-        source_ip=source_ip,
-        session_id=session_id,
-        message="Nouvelle connexion FTP entrante (avancé)"
-    )
-
-    try:
-        # Bannière plus “réaliste”
-        conn.sendall(b"220 (FakeFTP 1.0) FTP Honeypot Service Ready.\r\n")
-
-        buffer = ""
-
-        while True:
-            chunk = conn.recv(1024)
-            if not chunk:
-                break
-
-            buffer += chunk.decode(errors="ignore")
-
-            # On traite ligne par ligne (cas où plusieurs commandes arrivent d'un coup)
-            while "\r\n" in buffer:
-                line, buffer = buffer.split("\r\n", 1)
-                data = line.strip()
-                if not data:
-                    continue
-
-                # Exemple : "USER root"
-                parts = data.split(" ", 1)
-                command = parts[0].upper()
-                arg = parts[1] if len(parts) > 1 else ""
-
-                log_event(
-                    event_type="command_received",
-                    source_ip=source_ip,
-                    session_id=session_id,
-                    command=command,
-                    message=f"Commande reçue: {data}",
-                    extra={"raw": data, "current_dir": current_dir}
-                )
-
-                # ---- Gestion des commandes ----
-
-                # Authentification
-                if command == "USER":
-                    username = arg or "anonymous"
-                    conn.sendall(
-                        f"331 Password required for {username}.\r\n".encode()
-                    )
-
-                elif command == "PASS":
-                    password = arg
-
-                    # Logue les identifiants capturés
-                    log_event(
-                        event_type="login_attempt",
-                        source_ip=source_ip,
-                        session_id=session_id,
-                        username=username,
-                        password=password,
-                        message="Tentative d'identifiants FTP capturée."
-                    )
-
-                    # Pour le honeypot, on fait semblant que le login est OK
-                    authenticated = True
-                    conn.sendall(b"230 User logged in, proceed.\r\n")
-
-                # Info système
-                elif command == "SYST":
-                    conn.sendall(b"215 UNIX Type: L8\r\n")
-
-                elif command == "FEAT":
-                    # On fait semblant de supporter quelques features
-                    conn.sendall(
-                        b"211-Features:\r\n"
-                        b" MDTM\r\n"
-                        b" SIZE\r\n"
-                        b" UTF8\r\n"
-                        b"211 End\r\n"
-                    )
-
-                # Ping/keep-alive
-                elif command == "NOOP":
-                    conn.sendall(b"200 NOOP ok.\r\n")
-
-                # Répertoire courant
-                elif command == "PWD":
-                    conn.sendall(
-                        f'257 "{current_dir}" is current directory.\r\n'.encode()
-                    )
-
-                # Changement de répertoire
-                elif command == "CWD":
-                    target = arg.strip() or "/"
-                    # Normalisation ultra simple pour le TP
-                    if not target.startswith("/"):
-                        if current_dir.endswith("/"):
-                            target = current_dir + target
-                        else:
-                            target = current_dir + "/" + target
-
-                    # On ne vérifie que les clés existantes dans fake_fs
-                    if target in fake_fs:
-                        current_dir = target
-                        conn.sendall(
-                            f'250 Directory successfully changed to "{current_dir}".\r\n'.encode()
-                        )
-                    else:
-                        conn.sendall(b"550 Failed to change directory.\r\n")
-
-                # LIST (simulé sur le canal de contrôle, pas de data channel)
-                elif command == "LIST":
-                    conn.sendall(b"150 Opening ASCII mode data connection for file list.\r\n")
-
-                    entries = fake_fs.get(current_dir, [])
-                    # On loggue ce qu'on “présente”
-                    log_event(
-                        event_type="directory_list",
-                        source_ip=source_ip,
-                        session_id=session_id,
-                        command="LIST",
-                        message=f"LIST sur {current_dir}",
-                        extra={"entries": entries}
-                    )
-
-                    # Format très simplifié du listing
-                    for e in entries:
-                        line = f"-rw-r--r-- 1 root root 1234 Jan 01 00:00 {e}\r\n"
-                        conn.sendall(line.encode())
-
-                    conn.sendall(b"226 Transfer complete.\r\n")
-
-                # Téléchargement (RETR) – on ne renvoie rien, on log juste
-                elif command == "RETR":
-                    filename = arg.strip()
-                    log_event(
-                        event_type="file_access_attempt",
-                        source_ip=source_ip,
-                        session_id=session_id,
-                        command="RETR",
-                        message=f"Tentative de RETR sur {filename}",
-                        extra={"current_dir": current_dir}
-                    )
-                    conn.sendall(b"550 File not available.\r\n")
-
-                # Upload (STOR) – idem
-                elif command == "STOR":
-                    filename = arg.strip()
-                    log_event(
-                        event_type="file_upload_attempt",
-                        source_ip=source_ip,
-                        session_id=session_id,
-                        command="STOR",
-                        message=f"Tentative de STOR sur {filename}",
-                        extra={"current_dir": current_dir}
-                    )
-                    conn.sendall(b"550 Permission denied.\r\n")
-
-                # Déconnexion propre
-                elif command == "QUIT":
-                    conn.sendall(b"221 Goodbye.\r\n")
-                    log_event(
-                        event_type="client_quit",
-                        source_ip=source_ip,
-                        session_id=session_id,
-                        command="QUIT",
-                        message="Client a envoyé QUIT."
-                    )
-                    return  # on sort de la fonction → finally() va fermer
-
-                # Commandes non supportées
-                else:
-                    conn.sendall(b"502 Command not implemented.\r\n")
-
-    except socket.timeout:
-        log_event(
-            event_type="connection_timeout",
-            source_ip=source_ip,
-            session_id=session_id,
-            message="Session FTP expirée (timeout)."
-        )
-    except Exception as e:
-        log_event(
-            event_type="connection_error",
-            source_ip=source_ip,
-            session_id=session_id,
-            message=f"Erreur de gestion de connexion FTP : {e}"
-        )
-    finally:
-        conn.close()
-        log_event(
-            event_type="connection_closed",
-            source_ip=source_ip,
-            session_id=session_id,
-            message="Connexion FTP fermée."
-        )
+    log_event("pasv_open", session, ip)
+    return s, f"227 Entering Passive Mode ({ip_format},{p1},{p2})\r\n"
 
 
-# --- Fonction principale de démarrage du Honeypot ---
-def start_ftp_honeypot(host=HOST, port=PORT):
-    """Initialise le socket et démarre la boucle d'écoute."""
+# ===================== CLIENT HANDLER =====================
+def handle_client(conn, addr):
+    session = os.urandom(8).hex()
+    ip_client = addr[0]
+
+    log_event("connection_opened", session, ip_client)
+    conn.sendall(b"220 FakeFTP Honeypot Ready\r\n")
+
+    pasv_sock = None
+    buffer_cmd = ""
+
+    # ACTIVER SECCOMP
+    enable_seccomp_block_put()
+
     while True:
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind((host, port))
-            sock.listen(5)
-            print(f"[*] FTP Honeypot avancé écoutant sur {host}:{port}")
+            data = conn.recv(4096).decode(errors="ignore")
+        except:
+            break
 
-            while True:
-                conn, addr = sock.accept()
-                t = threading.Thread(target=handle_ftp_connection, args=(conn, addr), daemon=True)
-                t.start()
+        if not data:
+            break
 
-        except Exception as e:
-            print(f"[-] Erreur fatale lors du démarrage du serveur FTP : {e}")
-            time.sleep(5)  # on attend avant de retenter
+        buffer_cmd += data
+
+        while "\r\n" in buffer_cmd:
+            line, buffer_cmd = buffer_cmd.split("\r\n", 1)
+            line = line.strip()
+            if not line:
+                continue
+
+            parts = line.split(" ")
+            cmd = parts[0].upper()
+            arg = " ".join(parts[1:]) if len(parts) > 1 else None
+
+            if cmd not in ["STOR", "RETR"]:
+                log_event("command", session, ip_client, command=line)
+
+            # AUTH
+            if cmd == "USER":
+                conn.sendall(b"331 Password required\r\n")
+                continue
+
+            if cmd == "PASS":
+                conn.sendall(b"230 Login OK\r\n")
+                continue
+
+            if cmd == "TYPE":
+                conn.sendall(b"200 Type set\r\n")
+                continue
+
+            if cmd == "PWD":
+                conn.sendall(b'257 "/" is the current directory\r\n')
+                continue
+
+            # PASV
+            if cmd == "PASV":
+                if pasv_sock:
+                    pasv_sock.close()
+                pasv_sock, response = passive_socket(ip_client, session)
+                conn.sendall(response.encode())
+                continue
+
+            # LIST
+            if cmd == "LIST":
+                if not pasv_sock:
+                    conn.sendall(b"425 Use PASV first.\r\n")
+                    continue
+
+                conn.sendall(b"150 OK\r\n")
+                data_conn, _ = pasv_sock.accept()
+
+                listing = ""
+                for f in os.listdir(HONEYPOT_DIR):
+                    fp = os.path.join(HONEYPOT_DIR, f)
+                    size = os.path.getsize(fp)
+                    listing += f"-rw-r--r-- 1 root root {size} Jan 1 00:00 {f}\r\n"
+
+                data_conn.sendall(listing.encode())
+                data_conn.close()
+
+                pasv_sock.close()
+                pasv_sock = None
+                conn.sendall(b"226 List complete\r\n")
+                continue
+
+            # RETR (GET)
+            if cmd == "RETR":
+                if not pasv_sock:
+                    conn.sendall(b"425 Use PASV first.\r\n")
+                    continue
+
+                fp = os.path.join(HONEYPOT_DIR, arg or "")
+                if not os.path.exists(fp):
+                    conn.sendall(b"550 File not found\r\n")
+                    continue
+
+                conn.sendall(b"150 Opening data connection\r\n")
+                data_conn, _ = pasv_sock.accept()
+
+                with open(fp, "rb") as f:
+                    while chunk := f.read(4096):
+                        data_conn.sendall(chunk)
+
+                data_conn.close()
+                pasv_sock.close()
+                pasv_sock = None
+
+                conn.sendall(b"226 Transfer complete\r\n")
+                log_event("get", session, ip_client, extra={"file": arg})
+                continue
+
+            # ===================== STOR BLOQUÉ =====================
+            if cmd == "STOR":
+                print("⛔ STOR reçu, blocage seccomp :", arg)
+                conn.sendall(b"550 Permission denied (seccomp)\r\n")
+                log_event("put_blocked", session, ip_client, extra={"file": arg})
+                continue
+
+            # QUIT
+            if cmd == "QUIT":
+                conn.sendall(b"221 Goodbye\r\n")
+                log_event("connection_closed", session, ip_client)
+                conn.close()
+                return
+
+            conn.sendall(b"502 Command not implemented\r\n")
 
 
-if __name__ == '__main__':
-    start_ftp_honeypot()
+# ===================== SERVER =====================
+def start_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((HOST, PORT))
+    server.listen(5)
+
+    print(f"[+] FTP Honeypot running on port {PORT}")
+
+    while True:
+        conn, addr = server.accept()
+        threading.Thread(target=handle_client, args=(conn, addr)).start()
+
+
+if __name__ == "__main__":
+    start_server()

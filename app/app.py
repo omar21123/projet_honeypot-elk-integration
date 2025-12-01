@@ -2,7 +2,7 @@
 from flask import Flask, request, render_template_string, redirect, session, url_for, send_from_directory
 import sqlite3, os, logging, json
 from datetime import datetime
-import seccomp_config
+#import seccomp_config
 import subprocess
 
 app = Flask(__name__)
@@ -437,6 +437,6 @@ def page_not_found(e):
     return render_template_string(BASE, content="<h2>Page non trouvée</h2>", session=session), 404
 
 if __name__ == '__main__':
-    # seccomp_config.apply_seccomp_blacklist()
+    #seccomp_config.apply_seccomp_blacklist()
     print("[+] Honeypot E-commerce complet démarré sur http://0.0.0.0:5000")
     app.run(host='0.0.0.0', port=5000, threaded=True)

@@ -1,27 +1,32 @@
-# /etc/apparmor.d/ecom_honeypot
 #include <tunables/global>
 
-profile ecom_honeypot /home/kali/Desktop/honeypot/apps/venv/bin/python3 {
+profile ecom_honeypot /usr/bin/python3 {
   #include <abstractions/base>
-  #include <abstractions/python>
-
-  # Fichiers autorisés
-  /home/kali/Desktop/honeypot/apps/** rwk,
-  /home/kali/Desktop/honeypot/apps/database.db rw,
-  /home/kali/Desktop/honeypot/apps/uploads/** rw,
-  /home/kali/Desktop/honeypot/apps/ecom_honeypot.log w,
-
-  # Python & Flask
-  /usr/lib/python3.** r,
-  /usr/local/lib/python3.** r,
-
-  # Réseau
+  
+  capability net_bind_service,
+  
+  # Whitelist explicite - seulement ces chemins
+  /home/kali/Downloads/projet_honeypot-elk-integration/app/app.py r,
+  /home/kali/Downloads/projet_honeypot-elk-integration/app/seccomp_config.py r,
+  /home/kali/Downloads/projet_honeypot-elk-integration/app/database.db rwk,
+  /home/kali/Downloads/projet_honeypot-elk-integration/app/uploads/ rw,
+  /home/kali/Downloads/projet_honeypot-elk-integration/app/uploads/** rwk,
+  /home/kali/Downloads/projet_honeypot-elk-integration/logs/ rw,
+  /home/kali/Downloads/projet_honeypot-elk-integration/logs/ecom_honeypot.log w,
+  
+  # Python runtime minimal
+  /usr/bin/python3.11 mr,
+  /usr/lib/python3.11/**.so mr,
+  /usr/local/lib/python3.11/dist-packages/** r,
+  
   network inet stream,
-  network inet dgram,
-
-  # Bloquer tout le reste
-  deny capability sys_ptrace,
-  deny /bin/** x,
-  deny /usr/bin/** x,
+  
+  # Refus explicite de tout accès système
   deny /etc/** r,
+  deny /bin/** r,
+  deny /usr/bin/** r,
+  deny /var/** r,
+  deny /tmp/** r,
+  deny /proc/** r,
+  deny /sys/** r,
 }
